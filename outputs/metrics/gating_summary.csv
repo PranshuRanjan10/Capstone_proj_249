@@ -1,0 +1,9 @@
+,0
+false_actuation_rate_ungated,0.0851063829787234
+false_actuation_rate_gated,0.08074534161490683
+relative_reduction,0.0512422360248447
+deferral_fraction,0.053813559322033896
+n_actuations_ungated,329
+n_actuations_gated,322
+n_decisions,2360
+weather_source,unknown

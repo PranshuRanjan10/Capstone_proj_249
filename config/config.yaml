@@ -1,0 +1,110 @@
+# CARE-Paddy configuration
+# All site/agronomy parameters live here. Change these, not the code.
+
+site:
+  name: "Aduthurai, Cauvery delta (Thanjavur district), Tamil Nadu"
+  lat: 11.00
+  lon: 79.48
+  # ASSUMPTION - replace with your contact field's coordinates when available.
+
+# Two Cauvery-delta seasons. Kuruvai is irrigation-fed (Mettur releases) in the
+# weak SW-monsoon window; Samba runs through the NE monsoon and is largely rain-fed.
+# The two regimes exercise opposite ends of the decision policy.
+seasons:
+  - name: "Kuruvai"
+    transplant_month: 6
+    transplant_day: 15
+    variety_duration_days: 110
+    gdd_total: 1750.0
+    season_length_days: 120
+    years: [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+  - name: "Samba"
+    transplant_month: 8
+    transplant_day: 15
+    variety_duration_days: 135
+    gdd_total: 2100.0
+    season_length_days: 150
+    years: [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+
+phenology:
+  t_base: 10.0
+  t_cap: 30.0
+  gdd_total: 2100.0
+  stages:
+    - {name: "establishment",      f_start: 0.00, f_end: 0.15, kc: 1.05}
+    - {name: "tillering",          f_start: 0.15, f_end: 0.35, kc: 1.10}
+    - {name: "stem_elongation",    f_start: 0.35, f_end: 0.50, kc: 1.15}
+    - {name: "panicle_initiation", f_start: 0.50, f_end: 0.62, kc: 1.20}
+    - {name: "flowering",          f_start: 0.62, f_end: 0.75, kc: 1.20}
+    - {name: "grain_filling",      f_start: 0.75, f_end: 0.90, kc: 0.95}
+    - {name: "ripening",           f_start: 0.90, f_end: 1.01, kc: 0.65}
+  no_drain_stages: ["panicle_initiation", "flowering"]
+
+hydrology:
+  bund_height_mm: 100.0
+  wl_floor_mm: -300.0
+  # Percolation rate sourced from SoilGrids 250m (clay=32%, sand=33.8%, silt=34.2%
+  # at lat=11.00, lon=79.48) via Saxton-Rawls (2006) pedotransfer function with
+  # 0.10× puddling factor (Bouman et al. 2001 range for puddled lowland rice).
+  # This replaces the assumed 3.0 mm/day with a sourced, field-specific estimate.
+  percolation_ponded_mm_day: 1.0
+  percolation_unsat_mm_day: 0.5
+  irrigation_target_mm: 50.0
+
+awd:
+  safe_threshold_mm: -150.0
+  warning_margin_mm: 15.0
+  stage_floor_mm:
+    establishment: -20.0
+    tillering: -150.0
+    stem_elongation: -150.0
+    panicle_initiation: 0.0
+    flowering: 0.0
+    grain_filling: -100.0
+    ripening: -300.0
+
+sensors:
+  wl_noise_mm: 5.0
+  sm_noise_pct: 1.5
+  seed: 42
+
+model:
+  horizons: [1, 2, 3]
+  quantiles: [0.05, 0.50, 0.95]
+  # Gate set at ~75th percentile of observed interval widths (NASA POWER data).
+  # This defers ~25% of decisions — those with genuinely unusual forecast uncertainty.
+  # The 45mm default was calibrated for synthetic data; real weather has wider intervals
+  # because actual rainfall variance is higher than the synthetic model assumed.
+  gate_interval_width_mm: 90.0
+  xgb:
+    n_estimators: 300
+    max_depth: 4
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
+
+weather:
+  source: "power"              # NASA POWER daily agroclimatology (satellite/reanalysis, ~0.5 deg)
+  power_csv: "data/raw/power_daily.csv"
+  openmeteo_csv: "data/raw/openmeteo_forecast.csv"   # genuine forecast archive (fetch_openmeteo.py)
+  forecast_skill:
+    multiplicative_sd: 0.45    # fallback noise model when Open-Meteo archive not available
+    false_alarm_mm: 4.0
+
+soilgrids:
+  clay_pct: null               # filled by fetch_soilgrids.py; null = use config default
+  sand_pct: null
+  silt_pct: null
+  data_file: "data/raw/soilgrids.json"
+
+# Conformalized Quantile Regression (CQR) — project novelty contribution.
+# Romano, Patterson & Candès (NeurIPS 2019): distribution-free coverage guarantees
+# via split conformal prediction applied to quantile XGBoost intervals.
+# Per-stage calibration: separate conformal correction per growth stage, so the
+# uncertainty gate automatically tightens during yield-critical stages.
+conformal:
+  alpha: 0.10                    # miscoverage level (0.10 → 90% target coverage)
+  calibration_fraction: 0.20     # fraction of training data reserved for calibration
+  min_stage_n: 30                # minimum calibration points per stage before fallback to global
+  enabled: true                  # master switch: true → conformal gate, false → fixed gate
+

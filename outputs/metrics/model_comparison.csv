@@ -1,0 +1,13 @@
+model,horizon,MAE,RMSE,R2
+xgboost_q50,1,5.024,10.258,0.93
+random_forest,1,5.073,10.143,0.936
+persistence,1,7.388,14.046,0.886
+adaboost,1,8.332,13.089,0.895
+xgboost_q50,2,6.785,12.805,0.901
+random_forest,2,7.059,12.737,0.902
+adaboost,2,10.69,15.49,0.856
+persistence,2,11.318,19.433,0.785
+random_forest,3,8.522,14.009,0.877
+xgboost_q50,3,8.712,14.85,0.873
+adaboost,3,12.326,17.18,0.825
+persistence,3,14.931,23.727,0.681

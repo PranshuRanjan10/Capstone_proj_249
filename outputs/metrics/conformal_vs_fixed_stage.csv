@@ -1,0 +1,8 @@
+stage,n_days,fixed_far,conformal_far,fixed_deferral,conformal_deferral
+establishment,164,0.2105,0.2273,0.0549,0.0305
+tillering,413,—,—,0.0266,0.0218
+stem_elongation,308,0.0,0.0,0.2955,0.2857
+panicle_initiation,251,0.4419,0.4419,0.0,0.0
+flowering,278,0.2,0.2,0.0,0.0
+grain_filling,327,0.0,0.0,0.0,0.0
+ripening,619,0.0,0.0,0.0258,0.021

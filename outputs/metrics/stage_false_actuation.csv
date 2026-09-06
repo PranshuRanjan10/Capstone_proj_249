@@ -1,0 +1,8 @@
+stage,n_days,false_actuation_rate,deferral_rate
+establishment,164,0.2105,0.0549
+tillering,413,—,0.0266
+stem_elongation,308,0.0,0.2955
+panicle_initiation,251,0.4419,0.0
+flowering,278,0.2,0.0
+grain_filling,327,0.0,0.0
+ripening,619,0.0,0.0258
