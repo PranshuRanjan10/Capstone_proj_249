@@ -1,0 +1,15 @@
+# Pinned so the demo looks identical on any machine, regardless of the
+# viewer's OS dark-mode setting. Palette matches the review deck.
+[theme]
+base                = "light"
+primaryColor        = "#1F6F6B"
+backgroundColor     = "#FAFAF7"
+secondaryBackgroundColor = "#F1F4EF"
+textColor           = "#16211F"
+font                = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

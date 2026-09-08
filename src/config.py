@@ -1,4 +1,5 @@
 """Config loading. Single source of truth for every site/agronomy parameter."""
+from __future__ import annotations
 from pathlib import Path
 import yaml
 

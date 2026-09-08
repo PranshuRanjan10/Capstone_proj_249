@@ -63,6 +63,11 @@ data/*.db-shm
 credentials.json
 service-account*.json
 
+# ── Presentation material (kept local) ───────────────────────────────
+# Panel deck and per-member briefing PDFs. Generated documents for the
+# team, not part of the system. Excluded from the public repository.
+outputs/deck/
+
 # ── DELIBERATELY TRACKED ──────────────────────────────────────────────
 # data/raw/         real NASA POWER, Open-Meteo and SoilGrids downloads.
 #                   Committed so the pipeline is reproducible without
