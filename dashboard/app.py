@@ -6,9 +6,10 @@ Demo path for the review:
   2. Forecast chart    → median + 90% interval against the stage floor and bund
   3. Gate meter        → interval width vs the automation threshold
   4. Break the sensor  → inject a fault, watch the interval widen, watch the gate fire
-  5. Manual entry      → type a field state; every derived feature is shown
-  6. Decision map      → the whole policy across water level x forecast rain
-  7. Validation tab    → LOSO error, calibration, gating, sensitivity
+  5. Field 3D          → the same state as a cutaway paddy: water, crop, action
+  6. Manual entry      → type a field state; every derived feature is shown
+  7. Decision map      → the whole policy across water level x forecast rain
+  8. Validation tab    → LOSO error, calibration, gating, sensitivity
 
 Run:
   streamlit run dashboard/app.py
@@ -41,6 +42,7 @@ from features import FEATURES
 from manual_input import FieldInput, derive_row, feature_frame, climatology, PRESETS
 
 import theme as T
+from field3d import field3d, build_scene_state
 
 st.set_page_config(page_title="CARE-Paddy", page_icon="🌾",
                    layout="wide", initial_sidebar_state="expanded")
@@ -118,6 +120,28 @@ with st.sidebar:
             help="Each preset is a situation with a clear, verified correct answer.")
         pre = {k: v for k, v in PRESETS.get(preset_name, {}).items()
                if not k.startswith("_")}
+
+        # Streamlit ignores a widget's `value=` once session_state holds an entry
+        # for its key, so selecting a preset would otherwise change only the
+        # keyless widgets (season, day) and silently leave every slider alone.
+        # Push the preset into session_state once, on the rerun where it changes.
+        _KEYMAP = {
+            "wl_now_mm": "mi_wl_now_mm", "wl_trend_mm_day": "mi_wl_trend",
+            "rain_today_mm": "mi_rain_today_mm", "rain_3d_mm": "mi_rain_3d_mm",
+            "rain_7d_mm": "mi_rain_7d_mm", "rain_fc_t1_mm": "mi_rain_fc_t1_mm",
+            "rain_fc_t2_mm": "mi_rain_fc_t2_mm", "rain_fc_t3_mm": "mi_rain_fc_t3_mm",
+            "tmax_c": "mi_tmax_c", "tmin_c": "mi_tmin_c",
+        }
+        if preset_name != st.session_state.get("_mi_last_preset"):
+            st.session_state["_mi_last_preset"] = preset_name
+            if pre:
+                for src, key in _KEYMAP.items():
+                    if src in pre:
+                        st.session_state[key] = (int(pre[src])
+                                                 if key == "mi_wl_now_mm"
+                                                 else float(pre[src]))
+                st.rerun()
+
         why = PRESETS.get(preset_name, {}).get("_why", "")
         exp = PRESETS.get(preset_name, {}).get("_expect", "")
         if exp:
@@ -210,25 +234,18 @@ with st.sidebar:
                "one threshold catches all three.")
 
     st.divider()
-    st.header("Gate calibration")
-    gate_mode = st.radio(
-        "Gate mode", ["Conformal (CQR)", "Fixed threshold"],
-        label_visibility="collapsed",
-        help="Fixed: compares the raw 90% interval width against the threshold. "
-             "Conformal: applies the CQR correction first, then compares.")
-    gate = st.slider(
-        "Gate threshold (mm)", 10, 200,
-        int(CFG["model"]["gate_interval_width_mm"]), 5,
-        help="The safety / automation dial, used in BOTH modes. Lower defers more to "
-             "a human; higher automates more. 90 mm sits near the knee of the curve.")
-
-    st.divider()
     st.caption(f"{CFG['site']['name']}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # COMPUTE
 # ══════════════════════════════════════════════════════════════════════════════
+# Gate configuration is fixed, not operator-tunable. The threshold comes from
+# config.yaml and the conformal correction from the calibration step; neither is
+# exposed in the interface.
+gate      = float(CFG["model"]["gate_interval_width_mm"])
+gate_mode = "Conformal (CQR)"
+
 T.masthead(CFG["site"]["name"].split("(")[0].strip(),
            CFG["site"]["lat"], CFG["site"]["lon"])
 
@@ -248,7 +265,8 @@ else:
 
 T.scope_strip(wx_src)
 
-# fault injection
+# fault injection — keep the true level so the 3D view can show sensor vs field
+wl_pre_fault = float(row["wl_obs_mm"])
 rng = np.random.default_rng(int(day))
 if fault.startswith("stuck"):
     ref_val = (float(row["wl_lag7"]) if manual_mode
@@ -289,16 +307,14 @@ T.pills([
     ("AWD FLOOR", f"{floor:.0f} mm", ""),
     ("DRAIN", "forbidden" if no_drain else "permitted", "hot" if no_drain else ""),
     ("SOURCE", "manual entry" if manual_mode else season, ""),
-    ("GATE", f"{gate_mode.split()[0].lower()} @ {gate:.0f} mm", ""),
-] + ([("FAULT", fault.split()[0], "hot")] if fault != "none" else [])
-  + ([("STAGE Q̂", f"{q_hat:+.1f} mm", "")] if q_hat is not None else []))
+] + ([("FAULT", fault.split()[0], "hot")] if fault != "none" else []))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
-tab_dec, tab_season, tab_why, tab_val, tab_method = st.tabs(
-    ["  Decision  ", "  Season context  ", "  Why this forecast  ",
+tab_dec, tab_3d, tab_season, tab_why, tab_val, tab_method = st.tabs(
+    ["  Decision  ", "  Field 3D  ", "  Season context  ", "  Why this forecast  ",
      "  Validation  ", "  Method & scope  "])
 
 
@@ -566,6 +582,23 @@ with tab_dec:
                            "drains, unless the crop stage forbids it.")
         except Exception as exc:                                # pragma: no cover
             st.warning(f"Decision map unavailable: {exc}")
+
+
+# ──────────────────────────────────────────────────── FIELD 3D ───────────────
+with tab_3d:
+    T.section("The field, as the system sees it",
+              "A cutaway of one plot driven by the same state as the Decision tab: "
+              "water level, growth stage, the 1–3 day forecast and the action taken. "
+              "Drag to orbit, scroll to zoom.")
+    field3d(build_scene_state(row, wl_pre_fault=wl_pre_fault, forecast=fcd,
+                              decision=d, gate_mm=gate, cfg=CFG, season=season,
+                              fault=fault),
+            key="field3d", height=620)
+    st.caption("Water and soil depths are exaggerated so a few millimetres are "
+               "visible against a 12 m plot; plants are near true height. Under a "
+               "sensor fault the tube shows what the sensor reports while the "
+               "soil face shows the simulator's true water table. This is a "
+               "visualisation of simulated state, not imagery of a real field.")
 
 
 # ──────────────────────────────────────────────── SEASON CONTEXT ─────────────

@@ -44,6 +44,7 @@ python run_all.py
 | `src/train.py` | quantile XGBoost vs RF vs persistence, leave-one-season-out |
 | `src/decision.py` | pure-function policy + uncertainty gate |
 | `src/evaluate.py` | false actuation rate, gating curve, figures |
+| `dashboard/field3d/` | "Field 3D" tab: three.js cutaway of the plot, driven by the live decision state. No build step; restore its vendored three.js and CC0 assets with `python scripts/fetch_3d_assets.py` |
 | `docs/AGENT_SPEC.md` | full specification, pasteable into a coding agent |
 | `docs/CORRECTED_REFERENCES.md` | **fix the deck citations before Review-2** |
 

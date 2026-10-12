@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CARE-Paddy · Field 3D</title>
+  <link rel="stylesheet" href="./hud.css">
+  <!-- three.js is vendored (scripts/fetch_3d_assets.py), never loaded from a CDN -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <div id="labels"></div>
+
+    <div id="hud">
+      <div class="card tl">
+        <div class="kicker" id="h-season">—</div>
+        <div class="big" id="h-stage">—</div>
+        <div class="timeline" id="h-timeline"></div>
+        <div class="tl-legend"><span class="sw nodrain"></span>drainage forbidden</div>
+      </div>
+
+      <div class="card tr">
+        <div class="pill" id="h-action">—</div>
+        <div class="gloss" id="h-gloss"></div>
+        <div class="meter">
+          <div class="meter-lbl"><span>90% interval</span><b id="h-width">—</b></div>
+          <div class="meter-track"><div class="meter-fill" id="h-fill"></div><div class="meter-gate" id="h-gate"></div></div>
+          <div class="meter-sub" id="h-gate-txt"></div>
+        </div>
+      </div>
+
+      <div class="card bl">
+        <div class="row"><span>Water level</span><b id="h-wl">—</b></div>
+        <div class="row fault-only"><span>Actual (simulator)</span><b id="h-wl-act">—</b></div>
+        <div class="row"><span>Rain today</span><b id="h-rain">—</b></div>
+        <div class="row"><span>Forecast, next 3 days</span><b id="h-fc">—</b></div>
+        <div class="row"><span>Soil moisture</span><b id="h-sm">—</b></div>
+      </div>
+
+      <div class="views br">
+        <button data-view="overview" class="on">Overview</button>
+        <button data-view="cutaway">Cutaway</button>
+        <button data-view="sensor">Sensor</button>
+      </div>
+
+      <div class="disclaimer">Water &amp; soil depths exaggerated ×<span id="h-vex">4</span> · visualisation of simulated state</div>
+    </div>
+
+    <div id="loading">Preparing the field…</div>
+  </div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
