@@ -49,7 +49,7 @@ const labels = new CSS2DRenderer({ element: document.getElementById('labels') })
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#dfe9ee');
-scene.fog = new THREE.Fog('#dfe9ee', 45, 150);
+scene.fog = new THREE.Fog('#e4ecef', 28, 105);
 
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
 const controls = new OrbitControls(camera, canvas);
@@ -154,8 +154,9 @@ function renderHud(s) {
   const pill = $('h-action');
   pill.textContent = s.action;
   pill.style.background = ACTION_COLOUR[s.action] || C.ink;
-  $('h-gloss').textContent = s.constraint_applied
-    ? 'Drain blocked by the hard agronomic constraint'
+  // agronomic_hold is the one case where the constraint overrode a drain
+  $('h-gloss').textContent = s.rule === 'agronomic_hold'
+    ? 'Holding water: drainage forbidden at this stage'
     : ACTION_GLOSS[s.action] || '';
   const span = Math.max(s.interval_width_mm * 1.25, s.gate_mm * 1.45);
   $('h-width').textContent = `${Math.round(s.interval_width_mm)} mm`;

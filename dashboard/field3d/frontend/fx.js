@@ -173,10 +173,11 @@ export function createFx(scene) {
       // padlock: present whenever the stage forbids drainage; glows when it
       // actually blocked a drain recommendation
       lock.visible = s.no_drain;
-      lockMat.emissiveIntensity = s.constraint_applied ? 0.6 + 0.6 * Math.sin(t * 5) : 0.05;
+      const blocked = s.rule === 'agronomic_hold';    // the constraint overrode a drain
+      lockMat.emissiveIntensity = blocked ? 0.6 + 0.6 * Math.sin(t * 5) : 0.05;
       lock.position.y = plankH + 0.1 + open * plankH * 0.85;
-      setLabel(lockLbl, s.constraint_applied
-        ? 'DRAIN blocked · hard agronomic constraint'
+      setLabel(lockLbl, blocked
+        ? 'Near bund, but drain blocked · hard agronomic constraint'
         : 'Drainage locked · panicle initiation → flowering', s.no_drain);
 
       // rain: draw count follows today's rain, streaks wrap vertically

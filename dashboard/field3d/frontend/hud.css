@@ -89,6 +89,10 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 @keyframes pulse { 50% { opacity: .55; } }
 
 /* Narrow iframes: keep the scene readable, drop the secondary cards */
+@media (max-width: 900px) {
+  .disclaimer { display: none; }
+  .bl { width: 200px; font-size: .95em; }
+}
 @media (max-width: 720px) {
   .bl, .disclaimer { display: none; }
   .tl { width: 200px; } .tr { width: 170px; }

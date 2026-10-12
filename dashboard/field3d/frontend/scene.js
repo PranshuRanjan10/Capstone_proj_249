@@ -386,6 +386,10 @@ export function createWorld(scene, tex) {
       water.position.y = depth / 2 + 0.001;
       waterTex.offset.set(t * 0.012, t * 0.007);
 
+      // a stratum label yields to the AWD-floor label when they would overlap
+      const floorY = mmY(v.floor);
+      for (const o of strata) setLabel(o, o.el.textContent, Math.abs(o.position.y - floorY) > 0.14);
+
       setLabel(wtLabel, `Water table ${Math.round(wl)} mm`, wl < -4);
       wtLabel.position.y = mmY(wl);
       setLabel(pondLabel, `Ponded ${Math.round(wl)} mm`, wl > 4);

@@ -27,6 +27,7 @@ import pandas as pd
 import streamlit as st
 from xgboost import XGBRegressor
 
+import altair as alt
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -47,6 +48,10 @@ from field3d import field3d, build_scene_state
 st.set_page_config(page_title="CARE-Paddy", page_icon="🌾",
                    layout="wide", initial_sidebar_state="expanded")
 T.inject()
+try:
+    T.altair_theme()
+except Exception:                                   # older Altair: keep defaults
+    pass
 
 CFG   = C.load()
 FIGD  = ROOT / "outputs" / "figures"
@@ -86,6 +91,23 @@ def load_conformal():
     return dict(zip(t.stage, t.q_hat_mm))
 
 
+@st.cache_data
+def load_headline():
+    try:
+        mc = pd.read_csv(METD / "model_comparison.csv")
+        pick = lambda m, h: mc[(mc.model == m) & (mc.horizon == h)].iloc[0]
+        x1, p1, x3 = pick("xgboost_q50", 1), pick("persistence", 1), pick("xgboost_q50", 3)
+        g = pd.read_csv(METD / "conformal_summary.csv", index_col=0).iloc[:, 0]
+        return [
+            (f"{x1.MAE:.2f}", "mm", f"next-day error · persistence {p1.MAE:.2f} mm"),
+            (f"{x3.R2:.3f}", "R²", "three days ahead, leave-one-season-out"),
+            ("90", "%", "interval coverage after conformal calibration"),
+            (f"{100 * g['conformal_deferral']:.1f}", "%", "decisions handed back to a human"),
+        ]
+    except Exception:
+        return []
+
+
 df                   = load_features()
 fs                   = load_field_state()
 mdls                 = load_models()
@@ -96,6 +118,7 @@ conformal_thresholds = load_conformal()
 # SIDEBAR — inputs
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
+    T.brand()
     st.header("Input mode")
     mode = st.radio(
         "Where do the field readings come from?",
@@ -246,9 +269,6 @@ with st.sidebar:
 gate      = float(CFG["model"]["gate_interval_width_mm"])
 gate_mode = "Conformal (CQR)"
 
-T.masthead(CFG["site"]["name"].split("(")[0].strip(),
-           CFG["site"]["lat"], CFG["site"]["lon"])
-
 derived_ctx, derived_notes = None, []
 if manual_mode:
     row, derived_ctx, derived_notes = derive_row(manual_input, CFG)
@@ -263,6 +283,8 @@ else:
         str(row.get("weather_source", "synthetic")),
         str(row.get("weather_source", "synthetic")).replace("_", " "))
 
+T.hero(CFG["site"]["name"].split("(")[0].strip(), CFG["site"]["lat"],
+       CFG["site"]["lon"], wx_src, load_headline())
 T.scope_strip(wx_src)
 
 # fault injection — keep the true level so the 3D view can show sensor vs field
@@ -313,19 +335,29 @@ T.pills([
 # ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
-tab_dec, tab_3d, tab_season, tab_why, tab_val, tab_method = st.tabs(
-    ["  Decision  ", "  Field 3D  ", "  Season context  ", "  Why this forecast  ",
+tab_dec, tab_season, tab_why, tab_val, tab_method = st.tabs(
+    ["  Decision  ", "  Season context  ", "  Why this forecast  ",
      "  Validation  ", "  Method & scope  "])
 
 
 # ─────────────────────────────────────────────────────── DECISION ────────────
 with tab_dec:
-    left, right = st.columns([1, 2.15], gap="medium")
+    left, right = st.columns([1, 2.1], gap="medium")
+
+    with right:
+        field3d(build_scene_state(row, wl_pre_fault=wl_pre_fault, forecast=fcd,
+                                  decision=d, gate_mm=gate, cfg=CFG, season=season,
+                                  fault=fault),
+                key="field3d", height=560)
+        st.caption("Live 3D view of the same state: drag to orbit, scroll to zoom. "
+                   "Water and soil depths are exaggerated ×4; under a sensor fault the "
+                   "tube shows the sensor's reading while the soil face shows the "
+                   "simulator's true water table. A visualisation of simulated state, "
+                   "not imagery of a real field.")
 
     with left:
         T.action_card(d.action, d.gated, d.constraint_applied, d.rule)
-
-    with right:
+        st.write("")
         T.reason(d.reason.replace("_", " "))
         if d.constraint_applied:
             T.flag("rust", "Hard agronomic constraint applied",
@@ -342,6 +374,11 @@ with tab_dec:
                    "Normal operation — the forecast was confident enough to act on, "
                    "and no agronomic constraint applied at this stage.")
 
+    T.section("Decision audit trail",
+              "The engine runs five checks in a fixed order and stops at the first "
+              "that applies. The agronomic constraint always runs before any model "
+              "output is consulted.")
+    T.trail(d.rule, d.action)
     st.write("")
     t1, t2, t3, t4, t5 = st.columns(5)
     trend = float(row.wl_delta1)
@@ -584,23 +621,6 @@ with tab_dec:
             st.warning(f"Decision map unavailable: {exc}")
 
 
-# ──────────────────────────────────────────────────── FIELD 3D ───────────────
-with tab_3d:
-    T.section("The field, as the system sees it",
-              "A cutaway of one plot driven by the same state as the Decision tab: "
-              "water level, growth stage, the 1–3 day forecast and the action taken. "
-              "Drag to orbit, scroll to zoom.")
-    field3d(build_scene_state(row, wl_pre_fault=wl_pre_fault, forecast=fcd,
-                              decision=d, gate_mm=gate, cfg=CFG, season=season,
-                              fault=fault),
-            key="field3d", height=620)
-    st.caption("Water and soil depths are exaggerated so a few millimetres are "
-               "visible against a 12 m plot; plants are near true height. Under a "
-               "sensor fault the tube shows what the sensor reports while the "
-               "soil face shows the simulator's true water table. This is a "
-               "visualisation of simulated state, not imagery of a real field.")
-
-
 # ──────────────────────────────────────────────── SEASON CONTEXT ─────────────
 with tab_season:
     T.section(
@@ -612,11 +632,55 @@ with tab_season:
         "not your entered field state.")
 
     _h = S[["das", "wl_obs_mm", "rain_mm", "et_demand"]]
-    hist = (_h.groupby("das").mean() if manual_mode else _h.set_index("das"))
-    hist = hist.rename(columns={"wl_obs_mm": "Water level (mm)",
-                                "rain_mm": "Rain (mm)",
-                                "et_demand": "Crop water demand (mm/day)"})
-    st.line_chart(hist, height=330)
+    hist = (_h.groupby("das").mean() if manual_mode else _h.set_index("das")).reset_index()
+
+    # growth-stage bands behind the series; no-drain stages tinted rust
+    _bands = (S.groupby("stage", observed=True)["das"].agg(["min", "max"]).reset_index()
+              .sort_values("min"))
+    _bands["label"] = _bands.stage.str.replace("_", " ").str.title()
+    _bands["nodrain"] = _bands.stage.isin(CFG["phenology"]["no_drain_stages"])
+    _bands["x1"] = _bands["max"] + 1
+    _x = alt.X("das:Q", title="Days after transplanting",
+               scale=alt.Scale(domain=[0, float(hist.das.max()) + 1], nice=False))
+    bands = alt.Chart(_bands).mark_rect(opacity=.5).encode(
+        x="min:Q", x2="x1:Q",
+        color=alt.condition("datum.nodrain", alt.value(T.RUST_L), alt.value(T.RICE_L)),
+        tooltip=[alt.Tooltip("label:N", title="Stage"),
+                 alt.Tooltip("min:Q", title="from day"), alt.Tooltip("max:Q", title="to day")])
+    band_txt = alt.Chart(_bands).mark_text(
+        align="left", baseline="top", dx=4, dy=4, fontSize=10, color=T.INK3, angle=0
+    ).encode(x="min:Q", y=alt.value(0), text="label:N")
+    rain = alt.Chart(hist).mark_bar(color=T.SKY, opacity=.55, width=2.4).encode(
+        x=_x, y=alt.Y("rain_mm:Q", title="mm"),
+        tooltip=[alt.Tooltip("das:Q", title="day"),
+                 alt.Tooltip("rain_mm:Q", title="rain (mm)", format=".1f")])
+    wl = alt.Chart(hist).mark_line(color=T.WATER, strokeWidth=2.6, interpolate="monotone").encode(
+        x=_x, y="wl_obs_mm:Q",
+        tooltip=[alt.Tooltip("das:Q", title="day"),
+                 alt.Tooltip("wl_obs_mm:Q", title="water level (mm)", format=".1f")])
+    ref = pd.DataFrame({"y": [BUND, 0.0], "what": [f"bund {BUND:.0f} mm", "soil surface"]})
+    refs = alt.Chart(ref).mark_rule(strokeDash=[5, 4], color=T.INK3).encode(y="y:Q")
+    today = alt.Chart(pd.DataFrame({"das": [int(day)]})).mark_rule(
+        color=T.INK, strokeWidth=1.6).encode(x="das:Q")
+    today_txt = alt.Chart(pd.DataFrame({"das": [int(day)], "t": [f"day {int(day)}"]})).mark_text(
+        align="left", dx=5, dy=-4, fontSize=10.5, fontWeight=600, color=T.INK
+    ).encode(x="das:Q", y=alt.value(332), text="t:N")
+    st.altair_chart((bands + band_txt + rain + refs + wl + today + today_txt)
+                    .properties(height=360).interactive(bind_y=False),
+                    use_container_width=True, theme=None)
+    st.caption("Teal: water level. Blue bars: daily rain. Shaded bands are growth "
+               "stages — rust where drainage is forbidden. The black line is the day "
+               "selected in the sidebar. Scroll to zoom along the season.")
+
+    et = alt.Chart(hist).mark_area(
+        color=T.AMBER, opacity=.25, line={"color": T.AMBER, "strokeWidth": 1.6},
+        interpolate="monotone").encode(
+        x=_x, y=alt.Y("et_demand:Q", title="mm / day"),
+        tooltip=[alt.Tooltip("das:Q", title="day"),
+                 alt.Tooltip("et_demand:Q", title="crop water demand", format=".2f")])
+    st.altair_chart((bands + et + today).properties(
+        height=150, title="Crop water demand (ET₀ × Kc)"),
+        use_container_width=True, theme=None)
 
     T.section("Stage timeline", "When each growth stage begins and ends, and the "
                                 "crop coefficient that governs water demand.")
@@ -637,8 +701,12 @@ with tab_season:
         span.index = [s.replace("_", " ").title() for s in span.index]
         st.dataframe(span.sort_values("First day"), use_container_width=True)
     with c2:
-        st.line_chart(sdf.set_index("das")[["kc"]].rename(
-            columns={"kc": "Crop coefficient Kc"}), height=250)
+        st.altair_chart(alt.Chart(sdf.drop_duplicates("das")).mark_line(
+            interpolate="step-after", color=T.RICE, strokeWidth=2.4).encode(
+            x=alt.X("das:Q", title="Days after transplanting"),
+            y=alt.Y("kc:Q", title="Crop coefficient Kc", scale=alt.Scale(domain=[0.5, 1.3])),
+            tooltip=["das:Q", "kc:Q"]).properties(height=250),
+            use_container_width=True, theme=None)
     st.caption("Kc is the FAO-56 crop coefficient: it multiplies reference ET₀ to give "
                "actual crop water demand. It peaks at 1.20 through panicle initiation "
                "and flowering — the stages where the crop drinks hardest and drainage "
@@ -704,10 +772,37 @@ with tab_val:
     with vt[0]:
         p = METD / "model_comparison.csv"
         if p.exists():
-            st.dataframe(pd.read_csv(p), use_container_width=True, hide_index=True)
-        f = FIGD / "model_comparison.png"
-        if f.exists():
-            st.image(str(f), use_container_width=True)
+            mc = pd.read_csv(p)
+            mc["model"] = mc.model.map({"xgboost_q50": "XGBoost (q50)",
+                                        "random_forest": "Random Forest",
+                                        "adaboost": "AdaBoost",
+                                        "persistence": "Persistence"}).fillna(mc.model)
+            mc["lead"] = "t+" + mc.horizon.astype(str) + " day"
+            order = ["XGBoost (q50)", "Random Forest", "AdaBoost", "Persistence"]
+            colours = [T.WATER, "#8FB8B3", "#C9D6CF", T.RUST]
+            def bars(metric, title, fmt, domain=None):
+                ys = alt.Scale(domain=domain) if domain else alt.Undefined
+                base = alt.Chart(mc).encode(
+                    x=alt.X("lead:N", title=None, axis=alt.Axis(labelAngle=0)),
+                    xOffset=alt.XOffset("model:N", sort=order),
+                    y=alt.Y(f"{metric}:Q", title=title, scale=ys, stack=None),
+                    color=alt.Color("model:N", sort=order, title=None,
+                                    scale=alt.Scale(domain=order, range=colours)),
+                    tooltip=["model:N", "lead:N", alt.Tooltip(f"{metric}:Q", format=fmt)])
+                bar = base.mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                if domain:                                  # bars rise from the axis floor
+                    bar = bar.encode(y2=alt.datum(domain[0]))
+                return (bar
+                        + base.mark_text(dy=-6, fontSize=9.5, color=T.INK2)
+                        .encode(text=alt.Text(f"{metric}:Q", format=fmt))
+                        ).properties(height=280)
+            c1, c2 = st.columns(2, gap="medium")
+            c1.altair_chart(bars("MAE", "MAE (mm) — lower is better", ".1f"),
+                            use_container_width=True, theme=None)
+            c2.altair_chart(bars("R2", "R² — higher is better", ".2f", [0.6, 1.0]),
+                            use_container_width=True, theme=None)
+            with st.expander("Full leave-one-season-out table"):
+                st.dataframe(pd.read_csv(p), use_container_width=True, hide_index=True)
         T.flag("water", "How to read this",
                "Persistence — <i>tomorrow equals today</i> — is the bar the ML must "
                "clear. Its R² collapses from 0.886 to 0.681 as the horizon grows, "
@@ -819,25 +914,8 @@ with tab_method:
         ("ACTUATION", "Recommendation only",
          "Pump/valve relay interface exists; not autonomously wired", False),
     ]
-    for tag, name, desc, is_ml in layers:
-        bg  = T.WATER_L if is_ml else T.CARD
-        bc  = T.WATER if is_ml else T.RULE
-        badge = (f'<span style="background:{T.WATER};color:#fff;font-size:.6rem;'
-                 f'padding:3px 9px;border-radius:20px;font-weight:600;'
-                 f'letter-spacing:.06em">THE ML</span>') if is_ml else ""
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:16px;background:{bg};'
-            f'border:1px solid {bc};border-left:4px solid '
-            f'{T.WATER if is_ml else T.INK3};border-radius:9px;padding:11px 15px;'
-            f'margin-bottom:7px">'
-            f'<span style="font-family:IBM Plex Mono,monospace;font-size:.63rem;'
-            f'letter-spacing:.1em;color:{T.WATER if is_ml else T.INK3};width:95px;'
-            f'flex-shrink:0">{tag}</span>'
-            f'<span style="font-weight:650;width:200px;flex-shrink:0;'
-            f'font-size:.92rem">{name}</span>'
-            f'<span style="color:{T.INK2};font-size:.85rem;flex:1">{desc}</span>'
-            f'{badge}</div>', unsafe_allow_html=True)
-
+    T.flow(layers)
+    st.write("")
     T.flag("amber", "Why so little machine learning?",
            "Crop staging is standard agronomy, and the decision policy must be "
            "auditable by an agronomist. Making either one a model would add error, "

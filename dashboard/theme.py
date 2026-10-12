@@ -212,6 +212,136 @@ div[data-testid="stExpander"] details {{
     margin-top:26px; padding-top:13px; border-top:1px solid {RULE};
     font-size:.71rem; color:{INK3}; line-height:1.55;
 }}
+
+/* ════════════════ presentation layer ════════════════ */
+@keyframes cpRise {{ from {{ opacity:0; transform:translateY(8px); }} to {{ opacity:1; transform:none; }} }}
+@keyframes cpPulse {{ 0%,100% {{ box-shadow:0 0 0 0 rgba(163,59,42,.45); }} 50% {{ box-shadow:0 0 0 12px rgba(163,59,42,0); }} }}
+@keyframes cpShimmer {{ from {{ background-position:0 0; }} to {{ background-position:240px 0; }} }}
+
+.stApp {{ background:
+    radial-gradient(1200px 500px at 85% -120px, rgba(31,111,107,.07), transparent 70%),
+    {PAPER}; }}
+
+/* hero */
+.cp-hero {{
+    position:relative; overflow:hidden; border-radius:16px; color:#fff;
+    padding:26px 30px 0; margin:0 0 14px;
+    background:linear-gradient(120deg, #0E2522 0%, #15403B 48%, #1F6F6B 100%);
+    box-shadow:0 18px 40px rgba(14,37,34,.22); animation:cpRise .5s ease both;
+}}
+.cp-hero::before {{               /* transplanted rows, receding */
+    content:""; position:absolute; inset:0; opacity:.13; pointer-events:none;
+    background-image:repeating-linear-gradient(100deg, transparent 0 22px, #9fd99a 22px 24px);
+    -webkit-mask-image:linear-gradient(90deg, transparent 30%, #000 100%);
+            mask-image:linear-gradient(90deg, transparent 30%, #000 100%);
+    animation:cpShimmer 18s linear infinite;
+}}
+.cp-hero .top {{ position:relative; display:flex; align-items:flex-start; gap:18px; flex-wrap:wrap; }}
+.cp-hero .logo {{
+    width:52px; height:52px; border-radius:14px; flex-shrink:0; font-size:1.7rem;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2);
+}}
+.cp-hero .name {{ font-size:2.05rem; font-weight:800; letter-spacing:-.04em; line-height:1.05; }}
+.cp-hero .tag {{ font-size:.98rem; opacity:.82; margin-top:5px; max-width:640px; line-height:1.4; }}
+.cp-hero .chips {{ margin-left:auto; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }}
+.cp-hero .chip {{
+    font-family:'IBM Plex Mono',monospace; font-size:.66rem; letter-spacing:.06em;
+    padding:4px 10px; border-radius:20px; background:rgba(255,255,255,.1);
+    border:1px solid rgba(255,255,255,.18); white-space:nowrap;
+}}
+.cp-hero .chip i {{ font-style:normal; display:inline-block; width:7px; height:7px; border-radius:50%;
+                    background:#7ee08a; margin-right:6px; box-shadow:0 0 8px #7ee08a; }}
+.cp-kpis {{
+    position:relative; display:grid; grid-template-columns:repeat(4, 1fr);
+    margin:22px -30px 0; border-top:1px solid rgba(255,255,255,.14);
+    background:rgba(0,0,0,.14);
+}}
+.cp-kpi {{ padding:13px 30px 14px; border-right:1px solid rgba(255,255,255,.1); }}
+.cp-kpi:last-child {{ border-right:none; }}
+.cp-kpi .v {{ font-size:1.45rem; font-weight:750; letter-spacing:-.03em; }}
+.cp-kpi .v small {{ font-size:.6em; opacity:.75; font-weight:600; }}
+.cp-kpi .k {{ font-size:.72rem; opacity:.72; margin-top:1px; }}
+@media (max-width: 900px) {{ .cp-kpis {{ grid-template-columns:repeat(2, 1fr); }}
+                             .cp-hero .chips {{ margin-left:0; align-items:flex-start; }} }}
+
+/* entrance + hover */
+.cp-action, .cp-tile, .cp-reason, .cp-flag, .cp-trail {{ animation:cpRise .45s ease both; }}
+.cp-tile {{ transition:transform .18s ease, box-shadow .18s ease; }}
+.cp-tile:hover {{ transform:translateY(-2px); box-shadow:0 8px 20px rgba(20,40,36,.08); }}
+.cp-action {{ position:relative; overflow:hidden; }}
+.cp-action::after {{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(400px 160px at 50% -40px, rgba(255,255,255,.22), transparent 70%);
+}}
+.cp-action.inspect {{ animation:cpRise .45s ease both, cpPulse 1.8s ease-in-out infinite; }}
+
+/* pill tabs (Streamlit ≥1.5x renders react-aria tabs: role=tablist / stTab) */
+.stTabs [role="tablist"] {{
+    gap:4px !important; border-bottom:none !important; background:{CARD};
+    border:1px solid {RULE}; border-radius:12px; padding:5px; width:fit-content;
+    max-width:100%; flex-wrap:wrap; box-shadow:0 1px 3px rgba(20,40,36,.05);
+}}
+.stTabs [data-testid="stTab"] {{
+    height:36px !important; border-radius:8px !important; padding:0 16px !important;
+    font-weight:600 !important; color:{INK2} !important; transition:background .15s ease;
+}}
+.stTabs [data-testid="stTab"]:hover {{ background:{WATER_L} !important; }}
+.stTabs [data-testid="stTab"][aria-selected="true"] {{
+    color:#fff !important; background:{WATER} !important;
+    box-shadow:0 2px 8px rgba(31,111,107,.3);
+}}
+.stTabs [data-testid="stTab"][aria-selected="true"] * {{ color:#fff !important; }}
+.stTabs [role="tablist"] + div, .stTabs [role="tablist"] ~ [aria-hidden] {{ }}
+
+/* decision audit trail */
+.cp-trail {{ display:flex; align-items:stretch; gap:0; margin:6px 0 4px; }}
+.cp-step {{
+    flex:1; position:relative; background:{CARD}; border:1px solid {RULE};
+    padding:11px 14px 11px 22px; font-size:.78rem; color:{INK3};
+    clip-path:polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%);
+    margin-left:-6px;
+}}
+.cp-step:first-child {{ clip-path:polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
+                        margin-left:0; padding-left:14px; border-radius:8px 0 0 8px; }}
+.cp-step .n {{ font-family:'IBM Plex Mono',monospace; font-size:.6rem; letter-spacing:.1em; opacity:.8; }}
+.cp-step .t {{ font-weight:650; font-size:.84rem; color:{INK2}; margin-top:2px; }}
+.cp-step .s {{ font-size:.7rem; margin-top:2px; }}
+.cp-step.pass {{ background:{RICE_L}; }}
+.cp-step.pass .t {{ color:{RICE}; }}
+.cp-step.fire {{ color:#fff; }}
+.cp-step.fire .t {{ color:#fff; }}
+.cp-step.skip {{ opacity:.55; }}
+
+/* architecture flow */
+.cp-flow {{ display:flex; flex-wrap:wrap; gap:10px; align-items:stretch; }}
+.cp-layer {{
+    flex:1 1 150px; background:{CARD}; border:1px solid {RULE}; border-radius:12px;
+    padding:13px 14px; position:relative; animation:cpRise .45s ease both;
+}}
+.cp-layer .n {{ font-family:'IBM Plex Mono',monospace; font-size:.6rem; letter-spacing:.12em; color:{INK3}; }}
+.cp-layer .t {{ font-weight:700; font-size:.92rem; margin:4px 0 4px; color:{INK}; }}
+.cp-layer .d {{ font-size:.76rem; color:{INK2}; line-height:1.4; }}
+.cp-layer.ml {{ background:linear-gradient(160deg, {WATER} 0%, #15403B 100%); border-color:{WATER}; }}
+.cp-layer.ml .n, .cp-layer.ml .t, .cp-layer.ml .d {{ color:#fff; }}
+.cp-layer:not(:last-child)::after {{
+    content:"→"; position:absolute; right:-9px; top:50%; transform:translateY(-50%);
+    color:{INK3}; font-size:.9rem; background:{PAPER}; line-height:1; z-index:2;
+}}
+
+/* sidebar brand */
+.cp-brand {{ display:flex; align-items:center; gap:10px; padding:2px 0 12px; margin-bottom:6px;
+             border-bottom:1px solid {RULE}; }}
+.cp-brand .b {{ width:34px; height:34px; border-radius:9px; display:flex; align-items:center;
+                justify-content:center; background:linear-gradient(135deg, #15403B, {WATER});
+                color:#fff; font-size:1.05rem; }}
+.cp-brand .n {{ font-weight:800; letter-spacing:-.03em; font-size:1.02rem; color:{INK}; }}
+.cp-brand .s {{ font-size:.68rem; color:{INK3}; }}
+
+/* framed charts / tables */
+[data-testid="stVegaLiteChart"], [data-testid="stImage"] img, .stPlotlyChart {{
+    border-radius:10px; }}
+[data-testid="stVegaLiteChart"] {{ background:{CARD}; border:1px solid {RULE}; padding:10px 8px 4px; }}
 </style>
 """
 
@@ -243,12 +373,88 @@ def inject():
 
 
 # ── small HTML components ────────────────────────────────────────────────────
-def masthead(site: str, lat, lon):
+def hero(site: str, lat, lon, wx_src: str, kpis):
+    """Opening banner. kpis: list of (value, unit, caption) read from outputs/metrics."""
+    k = "".join(f'<div class="cp-kpi"><div class="v">{v}<small> {u}</small></div>'
+                f'<div class="k">{c}</div></div>' for v, u, c in kpis)
     st.markdown(
-        f'<div class="cp-head"><span class="name">CARE-Paddy</span>'
-        f'<span class="tag">Stage-aware, uncertainty-gated irrigation decision support</span>'
-        f'<span class="site">{site} &nbsp;·&nbsp; {lat}°N {lon}°E</span></div>',
+        f'<div class="cp-hero"><div class="top">'
+        f'<div class="logo">🌾</div>'
+        f'<div><div class="name">CARE-Paddy</div>'
+        f'<div class="tag">Stage-aware, uncertainty-gated irrigation decision support '
+        f'for Alternate Wetting &amp; Drying in the Cauvery delta — forecasts the field '
+        f'1–3 days ahead and refuses to act when it cannot trust itself.</div></div>'
+        f'<div class="chips">'
+        f'<span class="chip"><i></i>{site}</span>'
+        f'<span class="chip">{lat}°N · {lon}°E</span>'
+        f'<span class="chip">weather · {wx_src}</span></div>'
+        f'</div><div class="cp-kpis">{k}</div></div>',
         unsafe_allow_html=True)
+
+
+def brand():
+    st.markdown(
+        '<div class="cp-brand"><div class="b">🌾</div><div><div class="n">CARE-Paddy</div>'
+        '<div class="s">Irrigation decision support</div></div></div>',
+        unsafe_allow_html=True)
+
+
+# The decision engine's fixed evaluation order (src/decision.py). Each rule name
+# maps to the step that returned it, so the trail shows exactly where evaluation
+# stopped and which checks were passed on the way.
+TRAIL = [
+    ("Agronomic constraint", "PI → flowering: no drain", ("agronomic_",)),
+    ("Uncertainty gate", "interval vs CQR threshold", ("conformal_gate", "uncertainty_gate")),
+    ("AWD thresholds", "stage floor + rain", ("threshold_",)),
+    ("Bund-full drain", "near overflow", ("bund_drain",)),
+    ("Maintain", "nothing to do", ("maintain",)),
+]
+
+
+def trail(rule: str, action: str):
+    fired = next((i for i, (_, _, keys) in enumerate(TRAIL)
+                  if any(rule.startswith(k) for k in keys)), len(TRAIL) - 1)
+    col = ACTION_COLOUR.get(action, INK2)
+    steps = []
+    for i, (t, s, _) in enumerate(TRAIL):
+        if i < fired:
+            cls, note, style = "pass", "✓ passed", ""
+        elif i == fired:
+            cls, note, style = "fire", f"→ {action}", f' style="background:{col}"'
+        else:
+            cls, note, style = "skip", "not reached", ""
+        steps.append(f'<div class="cp-step {cls}"{style}><div class="n">STEP {i + 1}</div>'
+                     f'<div class="t">{t}</div><div class="s">{s} · {note}</div></div>')
+    st.markdown(f'<div class="cp-trail">{"".join(steps)}</div>', unsafe_allow_html=True)
+
+
+def flow(layers):
+    """layers: list of (tag, name, desc, is_ml)."""
+    html = "".join(
+        f'<div class="cp-layer{" ml" if ml else ""}" style="animation-delay:{i * .06:.2f}s">'
+        f'<div class="n">{tag}{" · THE ML" if ml else ""}</div>'
+        f'<div class="t">{name}</div><div class="d">{desc}</div></div>'
+        for i, (tag, name, desc, ml) in enumerate(layers))
+    st.markdown(f'<div class="cp-flow">{html}</div>', unsafe_allow_html=True)
+
+
+def altair_theme():
+    """Register and enable a vega-lite theme matching the dashboard palette."""
+    import altair as alt
+
+    @alt.theme.register("care_paddy", enable=True)
+    def _t():
+        return alt.theme.ThemeConfig({"config": {
+            "background": CARD,
+            "font": "Inter",
+            "view": {"stroke": None},
+            "axis": {"labelColor": INK3, "titleColor": INK2, "gridColor": RULE,
+                     "domainColor": RULE, "tickColor": RULE, "labelFontSize": 11,
+                     "titleFontSize": 11.5, "titleFontWeight": 600},
+            "legend": {"labelColor": INK2, "titleColor": INK2, "orient": "top",
+                       "labelFontSize": 11.5, "titleFontSize": 11},
+            "title": {"color": INK, "fontSize": 13, "anchor": "start"},
+        }})
 
 
 def scope_strip(src: str):
@@ -275,7 +481,8 @@ def action_card(action: str, gated: bool, constrained: bool, rule: str):
             else "AGRONOMIC CONSTRAINT" if constrained
             else f"RULE · {rule}")
     st.markdown(
-        f'<div class="cp-action" style="background:{ACTION_COLOUR.get(action,INK2)}">'
+        f'<div class="cp-action{" inspect" if gated else ""}" '
+        f'style="background:{ACTION_COLOUR.get(action,INK2)}">'
         f'<div class="ico">{ACTION_ICON.get(action,"")}</div>'
         f'<div class="verb">{action}</div>'
         f'<div class="glo">{ACTION_GLOSS.get(action,"")}</div>'
