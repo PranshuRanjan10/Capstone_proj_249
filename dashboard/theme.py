@@ -338,6 +338,12 @@ div[data-testid="stExpander"] details {{
 .cp-brand .n {{ font-weight:800; letter-spacing:-.03em; font-size:1.02rem; color:{INK}; }}
 .cp-brand .s {{ font-size:.68rem; color:{INK3}; }}
 
+/* selectbox dropdowns: let long option labels (the manual-entry presets) show in
+   full instead of being clipped at the sidebar's width */
+[data-testid="stSelectboxVirtualDropdown"] {{ min-width:400px !important; width:auto !important; }}
+[data-testid="stSelectboxVirtualDropdown"] [role="option"] > div {{
+    overflow:visible !important; white-space:nowrap !important; }}
+
 /* framed charts / tables */
 [data-testid="stVegaLiteChart"], [data-testid="stImage"] img, .stPlotlyChart {{
     border-radius:10px; }}
