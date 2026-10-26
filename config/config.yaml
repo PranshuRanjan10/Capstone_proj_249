@@ -106,5 +106,10 @@ conformal:
   alpha: 0.10                    # miscoverage level (0.10 → 90% target coverage)
   calibration_fraction: 0.20     # fraction of training data reserved for calibration
   min_stage_n: 30                # minimum calibration points per stage before fallback to global
+  # Calibration holds out whole seasons (2 Kuruvai + 2 Samba per fold). With that
+  # leakage-free split, one Q̂ per horizon reaches 89.3–89.5% coverage, while
+  # per-stage Q̂ (~50 calibration days per stage) over-fits and reaches 87–88%.
+  # Per-stage stays implemented and tested; global is the evaluated default.
+  per_stage: false
   enabled: true                  # master switch: true → conformal gate, false → fixed gate
 

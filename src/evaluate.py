@@ -45,18 +45,28 @@ def wide_frame(cfg):
     P = pd.read_parquet(root / "outputs" / "predictions.parquet")
     F = pd.read_parquet(root / "data" / "processed" / "features.parquet")
 
-    keep = ["pred_q05", "pred_q50", "pred_q95", "y_true"]
+    keep = ["pred_q05", "pred_q50", "pred_q95", "y_true", "cqr_qhat"]
     piv = P.pivot_table(index=["season_id", "date"], columns="horizon", values=keep)
     piv.columns = [f"{a}_h{b}" for a, b in piv.columns]
     piv = piv.reset_index()
 
+    # Rain that actually fell over the next three days — what perfect foresight
+    # knows. The system only ever sees the forecast (rain_fc_sum3_mm).
+    F = F.sort_values(["season_id", "date"]).copy()
+    g = F.groupby("season_id", sort=False)["rain_mm"]
+    F["rain_next3_mm"] = sum(g.shift(-k) for k in (1, 2, 3))
+
     meta = F[["season_id", "date", "stage", "wl_obs_mm",
-              "rain_fc_sum3_mm", "rain_sum3", "season_name"]]
+              "rain_fc_sum3_mm", "rain_next3_mm", "season_name"]]
     return piv.merge(meta, on=["season_id", "date"], how="left").dropna()
 
 
-def decisions_df(W, cfg, gate_mm=None, apply_gate=True, conformal_thresholds=None):
-    """Apply the decision policy to every row of the wide frame."""
+def decisions_df(W, cfg, gate_mm=None, apply_gate=True, conformal=False):
+    """Apply the decision policy to every row of the wide frame.
+
+    conformal=True gates on the CQR interval, using the Q̂ that row's own LOSO fold
+    calibrated (per stage, per horizon) — never a threshold that saw the test season.
+    """
     sys_a, ref_a, gated, width, rule = [], [], [], [], []
     for r in W.itertuples():
         fc = {h: {
@@ -65,14 +75,15 @@ def decisions_df(W, cfg, gate_mm=None, apply_gate=True, conformal_thresholds=Non
             "q95": getattr(r, f"pred_q95_h{h}"),
         } for h in (1, 2, 3)}
         obs = {h: getattr(r, f"y_true_h{h}") for h in (1, 2, 3)}
+        ct = ({r.stage: {h: getattr(r, f"cqr_qhat_h{h}") for h in (1, 2, 3)}}
+              if conformal else None)
         d = decide(r.wl_obs_mm, r.stage, fc, r.rain_fc_sum3_mm, cfg,
-                   gate_mm=gate_mm, apply_gate=apply_gate,
-                   conformal_thresholds=conformal_thresholds)
+                   gate_mm=gate_mm, apply_gate=apply_gate, conformal_thresholds=ct)
         sys_a.append(d.action)
         gated.append(d.gated)
         width.append(d.interval_width_mm)
         rule.append(d.rule)
-        ref_a.append(reference_action(r.wl_obs_mm, r.stage, obs, r.rain_sum3, cfg))
+        ref_a.append(reference_action(r.wl_obs_mm, r.stage, obs, r.rain_next3_mm, cfg))
 
     out = W.copy()
     out["system_action"]    = sys_a
@@ -270,12 +281,9 @@ def main(cfg=None):
     # =====================================================================
     # 8. CONFORMAL VS FIXED GATE COMPARISON (novelty evaluation)
     # =====================================================================
-    thresh_path = root / "outputs" / "metrics" / "conformal_thresholds.csv"
-    if thresh_path.exists():
-        thresh_df = pd.read_csv(thresh_path)
-        conformal_thresholds = dict(zip(thresh_df.stage, thresh_df.q_hat_mm))
-
-        D_cqr = decisions_df(W, cfg, conformal_thresholds=conformal_thresholds)
+    if "cqr_qhat_h1" in W.columns:
+        D_cqr = decisions_df(W, cfg, conformal=True)
+        D_cqr.to_csv(metd / "decisions_conformal.csv", index=False)
         far_cqr, n_cqr = false_actuation_rate(D_cqr)
         defer_cqr = float((D_cqr.system_action == "INSPECT").mean())
 
@@ -372,7 +380,7 @@ def main(cfg=None):
                 ax.set_xticklabels([s.replace("_", "\n") for s in ordered], fontsize=7)
                 ax.set_ylabel("Empirical coverage (%)")
                 ax.set_title("Per-stage interval coverage: Quantile vs CQR (h=3)\n"
-                             "CQR provides distribution-free ≥90% guarantee per stage")
+                             "Target is 90% marginal coverage; per-stage is reported, not guaranteed")
                 ax.legend(frameon=False, fontsize=8)
                 ax.set_ylim(0, 105)
                 fig.tight_layout()
@@ -385,7 +393,7 @@ def main(cfg=None):
         print("\nPer-stage conformal comparison:")
         print(stage_cmp_df.to_string(index=False))
     else:
-        print("\n[info] No conformal_thresholds.csv found; run train.py first.")
+        print("\n[info] predictions.parquet has no CQR columns; re-run train.py.")
 
     print("\n=== Gating summary ===")
     print(pd.Series({k: v for k, v in summary.items() if k != "weather_source"}).round(4).to_string())

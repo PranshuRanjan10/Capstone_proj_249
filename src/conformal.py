@@ -1,19 +1,17 @@
 """
-Conformalized Quantile Regression (CQR) with per-stage adaptive calibration.
-
-NOVELTY CONTRIBUTION: This module is the first application of split conformal
-prediction with stage-conditional calibration in a paddy irrigation DSS.
+Conformalized Quantile Regression (CQR), with an optional per-stage variant.
 
 WHAT IT DOES
-  Standard quantile regression (q05/q95) gives prediction intervals with
-  *approximate* 90% coverage. CQR adds a conformal correction that gives
-  *distribution-free, finite-sample-valid* coverage — meaning the 90% guarantee
-  holds for any data distribution, not just the one the model was trained on.
+  Quantile regression (q05/q95) gives prediction intervals with only
+  *approximate* 90% coverage. CQR adds a correction Q̂, estimated on held-out
+  calibration data, that restores the nominal coverage on average — valid in
+  finite samples provided calibration and test data are exchangeable.
 
-  Per-stage calibration goes further: instead of one global correction, we
-  compute a separate correction per crop growth stage. This means the gate
-  automatically tightens during yield-critical stages (panicle initiation,
-  flowering) where the model is less accurate.
+  In this project calibration data are whole held-out seasons (train.py), and
+  the gate in decision.py reads the calibrated interval width. One Q̂ per
+  horizon is the evaluated default: it reached 89.3–89.5% coverage under
+  leave-one-season-out testing. The per-stage variant below is implemented and
+  tested but over-fits with ~50 calibration days per stage (87–88%).
 
 ALGORITHM (Romano, Patterson & Candès, NeurIPS 2019)
   1. Train quantile models q̂_α/2 and q̂_{1-α/2} on training data.
@@ -24,7 +22,8 @@ ALGORITHM (Romano, Patterson & Candès, NeurIPS 2019)
   3. Compute Q̂ = ⌈(1-α)(1 + 1/n_cal)⌉-th quantile of {s_i}.
   4. For a new point x:
        C(x) = [q̂_α/2(x) - Q̂,  q̂_{1-α/2}(x) + Q̂]
-     This interval has guaranteed ≥ (1-α) coverage.
+     Under exchangeability this interval covers y with probability ≥ 1-α
+     on average over x (marginal, not per-stage, coverage).
 
 PER-STAGE EXTENSION
   Compute Q̂_s separately for each stage s, using only calibration points

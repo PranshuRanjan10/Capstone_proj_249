@@ -190,3 +190,17 @@ def test_thresholds_df():
     df = cal.thresholds_df()
     assert set(df.columns) == {"stage", "q_hat_mm"}
     assert len(df) == 3
+
+
+def test_calibration_seasons_never_include_test_and_balance_regimes():
+    """Split-conformal needs calibration data disjoint from the test season."""
+    from train import calibration_seasons
+    seasons = [f"Kuruvai-{y}" for y in range(2015, 2025)] + \
+              [f"Samba-{y}" for y in range(2015, 2024)]
+    for k, held in enumerate(seasons):
+        train_seasons = [s for s in seasons if s != held]
+        cal = calibration_seasons(train_seasons, 0.20, seed=k)
+        assert held not in cal
+        assert set(cal) <= set(train_seasons)
+        regimes = [s.split("-")[0] for s in cal]
+        assert regimes.count("Kuruvai") == regimes.count("Samba") == 2

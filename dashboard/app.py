@@ -88,7 +88,10 @@ def load_conformal():
     if not p.exists():
         return None
     t = pd.read_csv(p)
-    return dict(zip(t.stage, t.q_hat_mm))
+    if "horizon" not in t.columns:                  # older single-Q̂-per-stage file
+        return dict(zip(t.stage, t.q_hat_mm))
+    return {s: {int(h): float(q) for h, q in zip(g.horizon, g.q_hat_mm)}
+            for s, g in t.groupby("stage")}
 
 
 @st.cache_data
@@ -98,10 +101,12 @@ def load_headline():
         pick = lambda m, h: mc[(mc.model == m) & (mc.horizon == h)].iloc[0]
         x1, p1, x3 = pick("xgboost_q50", 1), pick("persistence", 1), pick("xgboost_q50", 3)
         g = pd.read_csv(METD / "conformal_summary.csv", index_col=0).iloc[:, 0]
+        cv = pd.read_csv(METD / "interval_coverage.csv")
         return [
             (f"{x1.MAE:.2f}", "mm", f"next-day error · persistence {p1.MAE:.2f} mm"),
             (f"{x3.R2:.3f}", "R²", "three days ahead, leave-one-season-out"),
-            ("90", "%", "interval coverage after conformal calibration"),
+            (f"{100 * cv.cqr_coverage.mean():.1f}", "%",
+             "interval coverage after conformal calibration (target 90)"),
             (f"{100 * g['conformal_deferral']:.1f}", "%", "decisions handed back to a human"),
         ]
     except Exception:
@@ -322,6 +327,8 @@ floor     = float(CFG["awd"]["stage_floor_mm"].get(
 q_hat = (conformal_thresholds.get(str(row.stage),
                                   conformal_thresholds.get("_global", 0.0))
          if (conformal_thresholds and gate_mode.startswith("Conformal")) else None)
+if isinstance(q_hat, dict):                         # per-horizon Q̂ → the largest
+    q_hat = max(q_hat.values()) if q_hat else 0.0
 
 T.pills([
     ("STAGE", stage_txt, "on"),
@@ -762,8 +769,12 @@ with tab_val:
     k1, k2, k3, k4 = st.columns(4)
     T.tile(k1, "MAE, next day", "5.02", "mm", "XGBoost q50 · vs 7.39 persistence")
     T.tile(k2, "R², next day", "0.930", "", "0.873 at 3 days ahead")
-    T.tile(k3, "False actuation", "8.07", "%", "8.51% without the gate")
-    T.tile(k4, "Deferred to human", "5.4", "%", "gate at 90 mm")
+    _gs = pd.read_csv(METD / "gating_summary.csv", index_col=0).iloc[:, 0]
+    _cs = pd.read_csv(METD / "conformal_summary.csv", index_col=0).iloc[:, 0]
+    T.tile(k3, "False actuation", f"{100 * float(_cs['conformal_far']):.2f}", "%",
+           f"{100 * float(_gs['false_actuation_rate_ungated']):.2f}% without the gate")
+    T.tile(k4, "Deferred to human", f"{100 * float(_cs['conformal_deferral']):.1f}", "%",
+           f"CQR gate · {100 * float(_cs['fixed_deferral']):.1f}% with the fixed gate")
 
     st.write("")
     vt = st.tabs(["Model comparison", "Interval calibration", "Uncertainty gating",
@@ -830,7 +841,10 @@ with tab_val:
             if f.exists():
                 st.image(str(f), use_container_width=True)
             st.caption("As the threshold falls, more decisions are deferred and false "
-                       "actuation drops. 90 mm sits near the knee.")
+                       "actuation drops — to 7.2% at 75–85 mm, at the cost of deferring "
+                       "9–24% of decisions. Below ~70 mm deferral explodes. 90 mm is a "
+                       "conservative operating point (6.1% deferred, 8.0% false "
+                       "actuation).")
         with c2:
             f = FIGD / "uncertainty_by_stage.png"
             if f.exists():
@@ -869,16 +883,20 @@ with tab_val:
         if p.exists():
             T.section("Per-stage conformal thresholds (Q̂) — known limitation")
             st.dataframe(pd.read_csv(p), use_container_width=True, hide_index=True)
-        T.flag("amber", "Honest limitation",
-               "Global CQR works as reported: it corrected the raw model's "
-               "over-coverage onto the 90% target (90.1–90.5%) and cut deferral from "
-               "5.38% to 4.87%. <b>Per-stage calibration is implemented and "
-               "unit-tested, but not yet effective.</b> The calibration split takes "
-               "the last 20% of each training season — and a rice season runs "
-               "chronologically to harvest, so that tail is entirely ripening "
-               "(510 rows, none from any other stage). Every other stage falls back to "
-               "the global Q̂, and stem elongation reaches only 77–82% coverage. "
-               "The fix is a stage-stratified split.")
+        T.flag("rice", "What calibration bought",
+               "Calibration holds out <b>whole seasons</b> (2 Kuruvai + 2 Samba per "
+               "fold), so the interval models are calibrated on data as independent of "
+               "them as the test season is. The raw quantile intervals over-cover "
+               "(92.8–96.2% for a 90% target); one conformal correction per horizon "
+               "brings coverage to <b>89.3–89.5%</b> and narrows the interval. At the "
+               "same 90 mm gate the system then defers <b>5.5%</b> of decisions instead "
+               "of 6.1%, with an unchanged false-actuation rate of 7.98%.")
+        T.flag("amber", "Tested and rejected: per-stage correction",
+               "A separate Q̂ per growth stage is implemented and unit-tested. With only "
+               "~50 calibration days per stage it over-fits and under-covers "
+               "(<b>87.2–88.0%</b>), so the evaluated default is one Q̂ per horizon. "
+               "Stem elongation, the transition into the first dry-down, remains the "
+               "worst-covered stage.")
 
     with vt[5]:
         T.flag("rice", "Conclusions survive a ±30% shake",

@@ -34,7 +34,7 @@ from xgboost import XGBRegressor
 sys.path.insert(0, str(Path(__file__).parent))
 import config as C
 from features import FEATURES, TARGET_PREFIX
-from conformal import ConformalCalibrator, cqr_nonconformity_scores
+from conformal import ConformalCalibrator
 
 
 def _scores(y, p, label: str, horizon: int, season: str) -> dict:
@@ -60,6 +60,26 @@ def _xgb_quantile(cfg, alpha: float, fast: bool = False) -> XGBRegressor:
     )
 
 
+def calibration_seasons(train_seasons, frac: float, seed: int) -> list[str]:
+    """Hold out whole seasons for conformal calibration, balanced across regimes.
+
+    Calibrating on whole seasons (rather than the tail of every season) gives the
+    calibration set every growth stage, and keeps it as independent of the
+    training seasons as the test season is — the split-conformal requirement.
+    """
+    rng = np.random.default_rng(seed)
+    by_regime: dict[str, list[str]] = {}
+    for s in sorted(train_seasons):
+        by_regime.setdefault(s.split("-")[0], []).append(s)
+    n_total = max(2, int(round(frac * len(train_seasons))))
+    per = max(1, n_total // len(by_regime))
+    picked = []
+    for regime in sorted(by_regime):
+        pool = by_regime[regime]
+        picked += list(rng.choice(pool, size=min(per, len(pool) - 1), replace=False))
+    return sorted(picked)
+
+
 def run(cfg=None):
     cfg = cfg or C.load()
     root = cfg["_root"]
@@ -72,37 +92,30 @@ def run(cfg=None):
     cal_frac = conformal_cfg.get("calibration_fraction", 0.20)
     cqr_alpha = conformal_cfg.get("alpha", 0.10)
     cqr_min_n = conformal_cfg.get("min_stage_n", 30)
-
-    # Collect conformal scores across all held-out seasons for global calibration
-    all_cqr_scores, all_cqr_stages = [], []
+    if not conformal_cfg.get("per_stage", True):
+        cqr_min_n = 10**9                      # every stage falls back to the global Q̂
+    q_lo, q_hi = min(quants), max(quants)
 
     for h in horizons:
         tgt = f"{TARGET_PREFIX}{h}"
         d = df.dropna(subset=FEATURES + [tgt]).copy()
 
-        for held in seasons:
+        for k, held in enumerate(seasons):
             tr = d[d.season_id != held]
             te = d[d.season_id == held]
 
-            # --- Split training into train_proper + calibration for CQR ---
-            # Take the last cal_frac of each training season as calibration
-            # (respects temporal order within each season)
-            tr_seasons = sorted(tr.season_id.unique())
-            tr_proper_idx, cal_idx = [], []
-            for s in tr_seasons:
-                s_idx = tr.index[tr.season_id == s].tolist()
-                split_pt = int(len(s_idx) * (1 - cal_frac))
-                tr_proper_idx.extend(s_idx[:split_pt])
-                cal_idx.extend(s_idx[split_pt:])
-            tr_proper = tr.loc[tr_proper_idx]
-            cal_set = tr.loc[cal_idx]
+            # --- Split-conformal: hold out whole calibration seasons ---
+            # The interval models are fit on the remaining (proper) seasons, then
+            # calibrated on the held-out seasons, and the SAME models produce the
+            # test-season interval. The held-out test season is never touched.
+            cal_ids = calibration_seasons(tr.season_id.unique(), cal_frac, seed=k)
+            tr_proper = tr[~tr.season_id.isin(cal_ids)]
+            cal_set = tr[tr.season_id.isin(cal_ids)]
 
             # Fit scaler on training fold only — never on the held-out season
             scaler = StandardScaler()
-            Xtr_raw = tr[FEATURES].to_numpy(dtype=float)
-            Xte_raw = te[FEATURES].to_numpy(dtype=float)
-            Xtr = scaler.fit_transform(Xtr_raw)
-            Xte = scaler.transform(Xte_raw)
+            Xtr = scaler.fit_transform(tr[FEATURES].to_numpy(dtype=float))
+            Xte = scaler.transform(te[FEATURES].to_numpy(dtype=float))
             ytr = tr[tgt].to_numpy()
             yte = te[tgt].to_numpy()
 
@@ -139,107 +152,91 @@ def run(cfg=None):
             rows.append(_scores(yte, p_ada, "adaboost", h, held))
             out["pred_adaboost"] = p_ada
 
-            # --- XGBoost quantiles (q05, q50, q95) ---
-            # Train on full training set (not tr_proper) for maximum accuracy
-            for q in quants:
-                m = _xgb_quantile(cfg, q, fast=True).fit(
-                    tr[FEATURES], tr[tgt]
-                )
-                out[f"pred_q{int(q*100):02d}"] = m.predict(te[FEATURES])
+            # --- XGBoost median: the point forecast, trained on every training season ---
+            med = _xgb_quantile(cfg, 0.50, fast=True).fit(tr[FEATURES], tr[tgt])
+            out["pred_q50"] = med.predict(te[FEATURES])
 
-            # --- CQR: compute conformal scores on calibration set ---
-            # Use the same quantile models (trained on full tr) to predict on cal_set
-            q05_cal = _xgb_quantile(cfg, 0.05, fast=True).fit(
-                tr_proper[FEATURES], tr_proper[tgt]
-            ).predict(cal_set[FEATURES])
-            q95_cal = _xgb_quantile(cfg, 0.95, fast=True).fit(
-                tr_proper[FEATURES], tr_proper[tgt]
-            ).predict(cal_set[FEATURES])
-            y_cal = cal_set[tgt].to_numpy()
-            stages_cal = cal_set["stage"].to_numpy()
+            # --- XGBoost interval (q05, q95): fit on proper seasons only ---
+            lo = _xgb_quantile(cfg, q_lo, fast=True).fit(tr_proper[FEATURES], tr_proper[tgt])
+            hi = _xgb_quantile(cfg, q_hi, fast=True).fit(tr_proper[FEATURES], tr_proper[tgt])
+            out["pred_q05"] = lo.predict(te[FEATURES])
+            out["pred_q95"] = hi.predict(te[FEATURES])
 
-            scores = cqr_nonconformity_scores(y_cal, q05_cal, q95_cal)
-            all_cqr_scores.append(scores)
-            all_cqr_stages.append(stages_cal)
-
-            # Apply per-stage conformal correction to test predictions
+            # --- CQR: calibrate those same interval models on the held-out seasons ---
             calibrator = ConformalCalibrator(alpha=cqr_alpha, min_stage_n=cqr_min_n)
-            calibrator.fit(y_cal, q05_cal, q95_cal, stages_cal)
-
-            cqr_lo, cqr_hi = calibrator.transform(
-                out["pred_q05"], out["pred_q95"], te["stage"].to_numpy()
-            )
+            calibrator.fit(cal_set[tgt].to_numpy(), lo.predict(cal_set[FEATURES]),
+                           hi.predict(cal_set[FEATURES]), cal_set["stage"].to_numpy())
+            stages_te = te["stage"].to_numpy()
+            cqr_lo, cqr_hi = calibrator.transform(out["pred_q05"], out["pred_q95"], stages_te)
             out["pred_cqr_lo"] = cqr_lo
             out["pred_cqr_hi"] = cqr_hi
             out["cqr_interval_width"] = cqr_hi - cqr_lo
+            out["cqr_qhat"] = np.array([calibrator.get_q_hat(str(s)) for s in stages_te])
+            out["cqr_stage_specific"] = np.array(
+                [str(s) in calibrator.thresholds and
+                 calibrator.thresholds[str(s)] != calibrator.thresholds["_global"]
+                 for s in stages_te])
 
-            p_med = out["pred_q50"]
-            rows.append(_scores(yte, p_med, "xgboost_q50", h, held))
+            rows.append(_scores(yte, out["pred_q50"], "xgboost_q50", h, held))
             pred_frames.append(pd.DataFrame(out))
 
     metrics = pd.DataFrame(rows)
     P = pd.concat(pred_frames, ignore_index=True)
 
-    # --- Prediction-interval calibration (quantile) ---
+    # --- Prediction-interval calibration: raw quantile interval vs CQR ---
     P["covered"]        = (P.y_true >= P.pred_q05) & (P.y_true <= P.pred_q95)
     P["interval_width"] = P.pred_q95 - P.pred_q05
-    cov = (
-        P.groupby("horizon")
-         .agg(
-             coverage_90=("covered", "mean"),
-             mean_interval_mm=("interval_width", "mean"),
-         )
-         .reset_index()
-    )
-
-    # --- CQR conformal calibration (novelty) ---
-    P["cqr_covered"]        = (P.y_true >= P.pred_cqr_lo) & (P.y_true <= P.pred_cqr_hi)
-    cov_cqr = (
-        P.groupby("horizon")
-         .agg(
-             cqr_coverage=("cqr_covered", "mean"),
-             cqr_mean_interval_mm=("cqr_interval_width", "mean"),
-         )
-         .reset_index()
-    )
-    cov = cov.merge(cov_cqr, on="horizon")
-
-    # Per-stage conformal coverage
-    cov_stage = (
-        P.groupby(["stage", "horizon"])
-         .agg(
-             quantile_coverage=("covered", "mean"),
-             cqr_coverage=("cqr_covered", "mean"),
-             quantile_width=("interval_width", "mean"),
-             cqr_width=("cqr_interval_width", "mean"),
-             n=("y_true", "count"),
-         )
-         .reset_index()
-    )
-
-    # Global conformal thresholds (fit on all collected scores)
-    all_scores = np.concatenate(all_cqr_scores)
-    all_stages = np.concatenate(all_cqr_stages)
-    global_calibrator = ConformalCalibrator(alpha=cqr_alpha, min_stage_n=cqr_min_n)
-    global_calibrator.fit(
-        np.zeros_like(all_scores),  # dummy y (we already have scores)
-        -all_scores,  # reconstruct: q_lo - y = -score when score = max(q_lo-y, y-q_hi)
-        all_scores,   # q_hi - y = score
-        all_stages,
-    )
-    # Re-compute thresholds directly from collected scores
-    from conformal import per_stage_conformal
-    global_thresholds = per_stage_conformal(all_scores, all_stages, cqr_alpha, cqr_min_n)
-    thresh_df = pd.DataFrame([
-        {"stage": k, "q_hat_mm": round(v, 2)}
-        for k, v in global_thresholds.items()
-    ])
+    P["cqr_covered"]    = (P.y_true >= P.pred_cqr_lo) & (P.y_true <= P.pred_cqr_hi)
+    cov = (P.groupby("horizon")
+             .agg(coverage_90=("covered", "mean"),
+                  mean_interval_mm=("interval_width", "mean"),
+                  cqr_coverage=("cqr_covered", "mean"),
+                  cqr_mean_interval_mm=("cqr_interval_width", "mean"))
+             .reset_index())
+    cov_stage = (P.groupby(["stage", "horizon"])
+                   .agg(quantile_coverage=("covered", "mean"),
+                        cqr_coverage=("cqr_covered", "mean"),
+                        quantile_width=("interval_width", "mean"),
+                        cqr_width=("cqr_interval_width", "mean"),
+                        mean_qhat=("cqr_qhat", "mean"),
+                        stage_specific_share=("cqr_stage_specific", "mean"),
+                        n=("y_true", "count"))
+                   .reset_index())
 
     summary = (
         metrics.groupby(["model", "horizon"])[["MAE", "RMSE", "R2"]]
                .mean().round(3).reset_index()
                .sort_values(["horizon", "MAE"])
     )
+
+    # --- Final models on ALL seasons, for the live dashboard ---
+    # The median uses every season. The interval models are fit on all but a fixed,
+    # regime-balanced set of calibration seasons, and those same models are
+    # conformally calibrated on them — so the deployed interval is the calibrated one.
+    mo = root / "outputs" / "models"
+    mo.mkdir(parents=True, exist_ok=True)
+    final_cal = calibration_seasons(seasons, cal_frac, seed=len(seasons))
+    thresh_rows = []
+    for h in horizons:
+        tgt = f"{TARGET_PREFIX}{h}"
+        d = df.dropna(subset=FEATURES + [tgt])
+        prop, cal = d[~d.season_id.isin(final_cal)], d[d.season_id.isin(final_cal)]
+        _xgb_quantile(cfg, 0.50).fit(d[FEATURES], d[tgt]).save_model(mo / f"xgb_h{h}_q50.json")
+        lo = _xgb_quantile(cfg, q_lo).fit(prop[FEATURES], prop[tgt])
+        hi = _xgb_quantile(cfg, q_hi).fit(prop[FEATURES], prop[tgt])
+        lo.save_model(mo / f"xgb_h{h}_q{int(q_lo*100):02d}.json")
+        hi.save_model(mo / f"xgb_h{h}_q{int(q_hi*100):02d}.json")
+        calib = ConformalCalibrator(alpha=cqr_alpha, min_stage_n=cqr_min_n).fit(
+            cal[tgt].to_numpy(), lo.predict(cal[FEATURES]), hi.predict(cal[FEATURES]),
+            cal["stage"].to_numpy())
+        n_by_stage = cal.stage.value_counts().to_dict()
+        for stage, qh in calib.thresholds.items():
+            thresh_rows.append({"stage": stage, "horizon": h, "q_hat_mm": round(qh, 2),
+                                "n_cal": int(n_by_stage.get(stage, len(cal)))})
+    thresh_df = pd.DataFrame(thresh_rows)
+    (mo / "features.json").write_text(json.dumps(FEATURES, indent=2))
+    (mo / "calibration_seasons.json").write_text(json.dumps(final_cal, indent=2))
+    thresh_df.to_csv(mo / "conformal_thresholds.csv", index=False)
 
     # --- Persist outputs ---
     md = root / "outputs" / "metrics"
@@ -251,25 +248,12 @@ def run(cfg=None):
     thresh_df.to_csv(md / "conformal_thresholds.csv", index=False)
     P.to_parquet(root / "outputs" / "predictions.parquet", index=False)
 
-    # --- Final models on ALL seasons, for the live dashboard ---
-    mo = root / "outputs" / "models"
-    mo.mkdir(parents=True, exist_ok=True)
-    for h in horizons:
-        tgt = f"{TARGET_PREFIX}{h}"
-        d = df.dropna(subset=FEATURES + [tgt])
-        for q in quants:
-            m = _xgb_quantile(cfg, q).fit(d[FEATURES], d[tgt])
-            m.save_model(mo / f"xgb_h{h}_q{int(q*100):02d}.json")
-    (mo / "features.json").write_text(json.dumps(FEATURES, indent=2))
-    # Save conformal thresholds for the dashboard
-    thresh_df.to_csv(mo / "conformal_thresholds.csv", index=False)
-
     print("\n=== Leave-one-season-out (mean over held-out seasons) ===")
     print(summary.to_string(index=False))
     print("\n=== Prediction-interval calibration (nominal 90%) ===")
     print(cov.round(3).to_string(index=False))
-    print("\n=== CQR per-stage conformal thresholds (Q̂, mm) ===")
-    print(thresh_df.to_string(index=False))
+    print(f"\n=== Deployed CQR thresholds (Q̂, mm), calibrated on {final_cal} ===")
+    print(thresh_df.pivot(index="stage", columns="horizon", values="q_hat_mm").to_string())
 
     # --- Rank check (important for defending model choice) ---
     h1 = summary[summary.horizon == 1].set_index("model")["MAE"]

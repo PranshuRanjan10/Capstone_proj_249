@@ -67,9 +67,9 @@ def decide(
     cfg             : loaded config dict
     gate_mm         : override gate width; None → use config value
     apply_gate      : set False for ablation / reference-policy computation
-    conformal_thresholds : dict mapping stage_name → Q̂ (conformal correction, mm).
-                     When provided, the uncertainty gate uses per-stage CQR-adjusted
-                     interval widths instead of the fixed gate_mm threshold.
+    conformal_thresholds : dict mapping stage_name → Q̂ (conformal correction, mm),
+                     either one value or {horizon: Q̂}. When provided, the gate
+                     compares the CQR-calibrated interval width with gate_mm.
                      Keys: stage names + "_global" for fallback.
 
     Returns
@@ -132,10 +132,10 @@ def decide(
     # One gate catches failure modes you would otherwise enumerate individually.
     # Only applies when apply_gate=True (set False for reference/ablation policy).
     #
-    # NOVELTY (CQR): When conformal_thresholds are provided, the gate uses
-    # per-stage conformal-adjusted interval width. The conformal correction Q̂
-    # widens the raw quantile interval to guarantee (1-α) coverage, and the
-    # per-stage Q̂_s automatically tightens during yield-critical stages.
+    # CQR: when conformal_thresholds are provided, the gate reads the
+    # conformally calibrated interval [q05 − Q̂, q95 + Q̂] instead of the raw
+    # quantile interval, so the width it compares with gate_mm has the
+    # coverage it claims (89.3–89.5% for a 90% target in LOSO testing).
     # -----------------------------------------------------------------------
     if apply_gate:
         if conformal_thresholds is not None:
@@ -143,9 +143,18 @@ def decide(
             q_hat = conformal_thresholds.get(
                 stage, conformal_thresholds.get("_global", 0.0)
             )
-            # The conformal-adjusted interval is [q05 - Q̂, q95 + Q̂]
-            # so the adjusted width = raw_width + 2 * Q̂
-            cqr_width = interval_width + 2 * q_hat
+            # The conformal-adjusted interval is [q05 - Q̂, q95 + Q̂], so each
+            # horizon's width grows by 2·Q̂. Q̂ may be one value per stage, or a
+            # {horizon: Q̂} mapping when calibrated separately per horizon.
+            if isinstance(q_hat, dict):
+                qh = {int(k): float(v) for k, v in q_hat.items()}
+                cqr_width = max(f["q95"] - f["q05"] + 2 * qh.get(int(h), 0.0)
+                                for h, f in forecast.items())
+                q_hat = max(qh.values()) if qh else 0.0
+            else:
+                cqr_width = interval_width + 2 * q_hat
+            # Every later step reports the calibrated width, the one the gate judged
+            interval_width = cqr_width
             if cqr_width > gate_mm:
                 return Decision(
                     "INSPECT",

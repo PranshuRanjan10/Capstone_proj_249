@@ -1,7 +1,7 @@
 ,0
-fixed_far,0.08074534161490683
-conformal_far,0.08307692307692308
-fixed_deferral,0.053813559322033896
-conformal_deferral,0.048728813559322036
-fixed_n_actuations,322.0
-conformal_n_actuations,325.0
+fixed_far,0.07975460122699386
+conformal_far,0.07975460122699386
+fixed_deferral,0.0614406779661017
+conformal_deferral,0.05508474576271186
+fixed_n_actuations,326.0
+conformal_n_actuations,326.0

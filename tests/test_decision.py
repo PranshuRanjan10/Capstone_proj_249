@@ -78,3 +78,39 @@ def test_conformal_gate_disabled_falls_back_to_fixed():
     assert d.action != "INSPECT"
     assert not d.gated
 
+
+
+def test_conformal_gate_accepts_per_horizon_qhat():
+    """Q̂ may be calibrated per horizon: the widest corrected horizon decides."""
+    forecast = fc(0, width=60)
+    per_h = {"tillering": {1: 0.0, 2: 0.0, 3: 20.0}}       # only h=3 widens past 90
+    d = decide(wl_now=0, stage="tillering", forecast=forecast, rain_fc_sum3_mm=0,
+               cfg=CFG, conformal_thresholds=per_h)
+    assert d.action == "INSPECT" and d.rule == "conformal_gate"
+    assert abs(d.interval_width_mm - 100.0) < 1e-9
+
+
+def test_conformal_width_is_reported_when_not_gated():
+    d = decide(wl_now=40, stage="tillering", forecast=fc(40, width=60),
+               rain_fc_sum3_mm=0, cfg=CFG, conformal_thresholds={"_global": -2.0})
+    assert not d.gated
+    assert abs(d.interval_width_mm - 56.0) < 1e-9          # 60 + 2·(−2)
+
+
+def test_no_drain_in_sensitive_stages_for_arbitrary_forecasts():
+    """Property: whatever the forecast, rain or gate setting, the engine never
+    returns DRAIN during panicle initiation or flowering."""
+    import random
+    rng = random.Random(0)
+    for _ in range(5000):
+        stage = rng.choice(CFG["phenology"]["no_drain_stages"])
+        forecast = {}
+        for h in (1, 2, 3):
+            a, b, c = sorted(rng.uniform(-400, 250) for _ in range(3))
+            forecast[h] = {"q05": a, "q50": b, "q95": c}
+        qhat = rng.choice([None, {"_global": rng.uniform(-30, 30)}])
+        d = decide(wl_now=rng.uniform(-300, 150), stage=stage, forecast=forecast,
+                   rain_fc_sum3_mm=rng.uniform(0, 200), cfg=CFG,
+                   gate_mm=rng.choice([None, rng.uniform(5, 300)]),
+                   apply_gate=rng.random() < 0.8, conformal_thresholds=qhat)
+        assert d.action != "DRAIN", (stage, forecast, d)
